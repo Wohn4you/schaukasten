@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schaukasten wohn4you</title>
+<!--
+  Diashow für den Schaukasten (Yodeck, Eintrag „Webseite“). Die Folien und ihre Reihenfolge
+  kommen aus liste.json, die bauen.py bei jeder Änderung neu schreibt. Die Seite fragt alle
+  5 Minuten nach einem neuen Stand und wechselt dann ohne Neuladen. Fällt das Netz aus, läuft
+  sie mit den geladenen Folien weiter.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+        opacity: 0; transition: opacity .6s ease; }
+  img.an { opacity: 1; }
+</style>
+</head>
+<body>
+<img id="a" alt=""><img id="b" alt="">
+<script>
+(function () {
+  var PRUEFEN_MS = 5 * 60 * 1000;          // so oft nach einem neuen Stand fragen
+  var NEU_LADEN_MS = 24 * 60 * 60 * 1000;  // einmal am Tag komplett neu laden (Speicher)
+  var stand = null, folien = [], dauer = 5000, pos = 0, sichtbar = 0;
+  var bilder = [document.getElementById('a'), document.getElementById('b')];
+  var start = Date.now();
+
+  function vorladen(liste) {
+    return Promise.all(liste.map(function (src) {
+      return new Promise(function (ok) {
+        var im = new Image(); im.onload = im.onerror = function () { ok(); }; im.src = src;
+      });
+    }));
+  }
+
+  function holen() {
+    return fetch('liste.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.version === stand) return;
+        var liste = j.folien.map(function (f) { return 'folien/' + f; });
+        return vorladen(liste).then(function () {
+          var erster = stand === null;
+          stand = j.version; folien = liste; dauer = (j.dauer || 5) * 1000;
+          if (pos >= folien.length) pos = 0;
+          if (erster) zeigen();
+        });
+      })
+      .catch(function () { /* Netz weg: mit dem bisherigen Stand weiterlaufen */ });
+  }
+
+  function zeigen() {
+    if (!folien.length) { setTimeout(zeigen, 2000); return; }
+    var naechstes = bilder[1 - sichtbar];
+    naechstes.src = folien[pos];
+    naechstes.classList.add('an');
+    bilder[sichtbar].classList.remove('an');
+    sichtbar = 1 - sichtbar;
+    pos = (pos + 1) % folien.length;
+    if (pos === 0 && Date.now() - start > NEU_LADEN_MS) { location.reload(); return; }
+    setTimeout(zeigen, dauer);
+  }
+
+  holen();
+  setInterval(holen, PRUEFEN_MS);
+})();
+</script>
+</body>
+</html>
